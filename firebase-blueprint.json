@@ -1,0 +1,209 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Daftar administrator dan manager yang memiliki akses penuh pengelolaan HRM.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Position": {
+      "title": "Position",
+      "description": "Master data jabatan dan tarif gaji harian (default Rp 100.000/hari).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "department": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "dailyRate": { "type": "number" },
+        "description": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "department", "dailyRate", "description", "createdAt", "updatedAt"]
+    },
+    "WorkSchedule": {
+      "title": "WorkSchedule",
+      "description": "Pengaturan hari kerja dan jam masuk/pulang standar perusahaan.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "dayOfWeek": { "type": "integer" },
+        "dayName": { "type": "string", "minLength": 3, "maxLength": 20 },
+        "isWorkingDay": { "type": "boolean" },
+        "checkInStart": { "type": "string", "minLength": 5, "maxLength": 5, "pattern": "^\\d{2}:\\d{2}$" },
+        "checkInDeadline": { "type": "string", "minLength": 5, "maxLength": 5, "pattern": "^\\d{2}:\\d{2}$" },
+        "checkOutMin": { "type": "string", "minLength": 5, "maxLength": 5, "pattern": "^\\d{2}:\\d{2}$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "dayOfWeek", "dayName", "isWorkingDay", "checkInStart", "checkInDeadline", "checkOutMin", "createdAt", "updatedAt"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Data profil karyawan, jabatan, peran akses, dan kepemilikan akun.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeCode": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "phone": { "type": "string", "minLength": 5, "maxLength": 30 },
+        "positionId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "positionName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "dailyRate": { "type": "number" },
+        "role": { "type": "string", "enum": ["manager", "employee"] },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "joinDate": { "type": "string", "minLength": 11, "maxLength": 11, "pattern": "^\\d{2}-[A-Za-z]{3}-\\d{4}$" },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "employeeCode", "fullName", "email", "phone", "positionId", "positionName", "dailyRate", "role", "status", "joinDate", "avatarUrl", "ownerUid", "createdAt", "updatedAt"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Catatan kehadiran harian dengan Check-in, Check-out, koordinat GPS, dan referensi foto selfie.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "positionName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "dateKey": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "displayDate": { "type": "string", "minLength": 11, "maxLength": 11, "pattern": "^\\d{2}-[A-Za-z]{3}-\\d{4}$" },
+        "checkInTime": { "type": "string", "maxLength": 12 },
+        "checkInLat": { "type": "number" },
+        "checkInLng": { "type": "number" },
+        "checkInAccuracy": { "type": "number" },
+        "checkInAddress": { "type": "string", "maxLength": 240 },
+        "checkInPhotoId": { "type": "string", "maxLength": 128 },
+        "checkOutTime": { "type": "string", "maxLength": 12 },
+        "checkOutLat": { "type": "number" },
+        "checkOutLng": { "type": "number" },
+        "checkOutAccuracy": { "type": "number" },
+        "checkOutAddress": { "type": "string", "maxLength": 240 },
+        "checkOutPhotoId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Hadir", "Terlambat"] },
+        "dailyWageSnapshot": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "employeeId", "employeeName", "positionName", "ownerUid", "dateKey", "displayDate",
+        "checkInTime", "checkInLat", "checkInLng", "checkInAccuracy", "checkInAddress", "checkInPhotoId",
+        "checkOutTime", "checkOutLat", "checkOutLng", "checkOutAccuracy", "checkOutAddress", "checkOutPhotoId",
+        "status", "dailyWageSnapshot", "createdAt", "updatedAt"
+      ]
+    },
+    "AttendancePhoto": {
+      "title": "AttendancePhoto",
+      "description": "Foto selfie terkompresi untuk bukti Check-in atau Check-out.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "attendanceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["checkin", "checkout"] },
+        "imageDataUrl": { "type": "string", "minLength": 20, "maxLength": 140000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "attendanceId", "employeeId", "ownerUid", "type", "imageDataUrl", "createdAt"]
+    },
+    "LeaveRequest": {
+      "title": "LeaveRequest",
+      "description": "Pengajuan cuti karyawan dan status persetujuan manajemen.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "leaveType": { "type": "string", "enum": ["Tahunan", "Sakit", "Izin"] },
+        "startDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "endDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "displayStartDate": { "type": "string", "minLength": 11, "maxLength": 11, "pattern": "^\\d{2}-[A-Za-z]{3}-\\d{4}$" },
+        "displayEndDate": { "type": "string", "minLength": 11, "maxLength": 11, "pattern": "^\\d{2}-[A-Za-z]{3}-\\d{4}$" },
+        "totalDays": { "type": "integer" },
+        "reason": { "type": "string", "minLength": 3, "maxLength": 500 },
+        "status": { "type": "string", "enum": ["Menunggu", "Disetujui", "Ditolak"] },
+        "reviewedBy": { "type": "string", "maxLength": 100 },
+        "reviewNote": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "employeeId", "employeeName", "ownerUid", "leaveType",
+        "startDate", "endDate", "displayStartDate", "displayEndDate",
+        "totalDays", "reason", "status", "reviewedBy", "reviewNote", "createdAt", "updatedAt"
+      ]
+    },
+    "PayrollRecord": {
+      "title": "PayrollRecord",
+      "description": "Rekapitulasi pembayaran gaji harian karyawan per periode bulan.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "positionName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "periodKey": { "type": "string", "minLength": 7, "maxLength": 7, "pattern": "^\\d{4}-\\d{2}$" },
+        "displayPeriod": { "type": "string", "minLength": 8, "maxLength": 8, "pattern": "^[A-Za-z]{3}-\\d{4}$" },
+        "daysPresent": { "type": "integer" },
+        "dailyRate": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["Belum Dibayar", "Dibayar"] },
+        "paidDateDisplay": { "type": "string", "maxLength": 11 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "employeeId", "employeeName", "positionName", "ownerUid",
+        "periodKey", "displayPeriod", "daysPresent", "dailyRate", "totalAmount",
+        "paymentStatus", "paidDateDisplay", "createdAt", "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Koleksi daftar akun admin terotorisasi."
+    },
+    "/positions/{positionId}": {
+      "schema": { "$ref": "#/entities/Position" },
+      "description": "Master data jabatan dan tarif upah harian."
+    },
+    "/work_schedules/{scheduleId}": {
+      "schema": { "$ref": "#/entities/WorkSchedule" },
+      "description": "Konfigurasi hari kerja dan batas jam Check-in/Check-out."
+    },
+    "/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/Employee" },
+      "description": "Direktori data karyawan beserta jabatan dan kepemilikan UID."
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/Attendance" },
+      "description": "Log Check-in dan Check-out harian karyawan beserta koordinat GPS."
+    },
+    "/attendance_photos/{photoId}": {
+      "schema": { "$ref": "#/entities/AttendancePhoto" },
+      "description": "Penyimpanan gambar selfie Check-in/Check-out terkompresi."
+    },
+    "/leave_requests/{leaveId}": {
+      "schema": { "$ref": "#/entities/LeaveRequest" },
+      "description": "Permohonan cuti karyawan dan riwayat persetujuan."
+    },
+    "/payroll_records/{payrollId}": {
+      "schema": { "$ref": "#/entities/PayrollRecord" },
+      "description": "Status dan nominal pembayaran payroll harian per periode."
+    }
+  }
+}

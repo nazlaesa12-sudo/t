@@ -1,0 +1,416 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'merahputh65@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidDateKey(val) {
+      return val is string && val.size() == 10 && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isValidDisplayDate(val) {
+      return val is string && val.size() == 11 && val.matches('^\\d{2}-[A-Za-z]{3}-\\d{4}$');
+    }
+
+    function isValidTimeHHMM(val) {
+      return val is string && val.size() == 5 && val.matches('^\\d{2}:\\d{2}$');
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPosition(data) {
+      return data.keys().hasAll(['id', 'name', 'department', 'dailyRate', 'description', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'department', 'dailyRate', 'description', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+        && data.department is string && data.department.size() >= 2 && data.department.size() <= 80
+        && data.dailyRate is number && data.dailyRate >= 0 && data.dailyRate <= 100000000
+        && data.description is string && data.description.size() <= 300
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkSchedule(data) {
+      return data.keys().hasAll(['id', 'dayOfWeek', 'dayName', 'isWorkingDay', 'checkInStart', 'checkInDeadline', 'checkOutMin', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'dayOfWeek', 'dayName', 'isWorkingDay', 'checkInStart', 'checkInDeadline', 'checkOutMin', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.dayOfWeek is int && data.dayOfWeek >= 0 && data.dayOfWeek <= 6
+        && data.dayName is string && data.dayName.size() >= 3 && data.dayName.size() <= 20
+        && data.isWorkingDay is bool
+        && isValidTimeHHMM(data.checkInStart)
+        && isValidTimeHHMM(data.checkInDeadline)
+        && isValidTimeHHMM(data.checkOutMin)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll([
+          'id', 'employeeCode', 'fullName', 'email', 'phone', 'positionId', 'positionName',
+          'dailyRate', 'role', 'status', 'joinDate', 'avatarUrl', 'ownerUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeCode', 'fullName', 'email', 'phone', 'positionId', 'positionName',
+          'dailyRate', 'role', 'status', 'joinDate', 'avatarUrl', 'ownerUid', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.employeeCode is string && data.employeeCode.size() >= 2 && data.employeeCode.size() <= 32
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.phone is string && data.phone.size() >= 5 && data.phone.size() <= 30
+        && isValidId(data.positionId)
+        && data.positionName is string && data.positionName.size() >= 2 && data.positionName.size() <= 80
+        && data.dailyRate is number && data.dailyRate >= 0 && data.dailyRate <= 100000000
+        && data.role in ['manager', 'employee']
+        && data.status in ['active', 'inactive']
+        && isValidDisplayDate(data.joinDate)
+        && data.avatarUrl is string && data.avatarUrl.size() <= 500
+        && isValidId(data.ownerUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'positionName', 'ownerUid', 'dateKey', 'displayDate',
+          'checkInTime', 'checkInLat', 'checkInLng', 'checkInAccuracy', 'checkInAddress', 'checkInPhotoId',
+          'checkOutTime', 'checkOutLat', 'checkOutLng', 'checkOutAccuracy', 'checkOutAddress', 'checkOutPhotoId',
+          'status', 'dailyWageSnapshot', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'positionName', 'ownerUid', 'dateKey', 'displayDate',
+          'checkInTime', 'checkInLat', 'checkInLng', 'checkInAccuracy', 'checkInAddress', 'checkInPhotoId',
+          'checkOutTime', 'checkOutLat', 'checkOutLng', 'checkOutAccuracy', 'checkOutAddress', 'checkOutPhotoId',
+          'status', 'dailyWageSnapshot', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
+        && data.positionName is string && data.positionName.size() >= 2 && data.positionName.size() <= 80
+        && isValidId(data.ownerUid)
+        && isValidDateKey(data.dateKey)
+        && isValidDisplayDate(data.displayDate)
+        && data.checkInTime is string && data.checkInTime.size() <= 12
+        && data.checkInLat is number && data.checkInLat >= -90 && data.checkInLat <= 90
+        && data.checkInLng is number && data.checkInLng >= -180 && data.checkInLng <= 180
+        && data.checkInAccuracy is number && data.checkInAccuracy >= 0 && data.checkInAccuracy <= 100000
+        && data.checkInAddress is string && data.checkInAddress.size() <= 240
+        && data.checkInPhotoId is string && data.checkInPhotoId.size() <= 128
+        && data.checkOutTime is string && data.checkOutTime.size() <= 12
+        && data.checkOutLat is number && data.checkOutLat >= -90 && data.checkOutLat <= 90
+        && data.checkOutLng is number && data.checkOutLng >= -180 && data.checkOutLng <= 180
+        && data.checkOutAccuracy is number && data.checkOutAccuracy >= 0 && data.checkOutAccuracy <= 100000
+        && data.checkOutAddress is string && data.checkOutAddress.size() <= 240
+        && data.checkOutPhotoId is string && data.checkOutPhotoId.size() <= 128
+        && data.status in ['Hadir', 'Terlambat']
+        && data.dailyWageSnapshot is number && data.dailyWageSnapshot >= 0 && data.dailyWageSnapshot <= 100000000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAttendancePhoto(data) {
+      return data.keys().hasAll(['id', 'attendanceId', 'employeeId', 'ownerUid', 'type', 'imageDataUrl', 'createdAt'])
+        && data.keys().hasOnly(['id', 'attendanceId', 'employeeId', 'ownerUid', 'type', 'imageDataUrl', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.attendanceId)
+        && isValidId(data.employeeId)
+        && isValidId(data.ownerUid)
+        && data.type in ['checkin', 'checkout']
+        && data.imageDataUrl is string && data.imageDataUrl.size() >= 20 && data.imageDataUrl.size() <= 140000
+        && data.createdAt is timestamp;
+    }
+
+    function isValidLeaveRequest(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'ownerUid', 'leaveType',
+          'startDate', 'endDate', 'displayStartDate', 'displayEndDate',
+          'totalDays', 'reason', 'status', 'reviewedBy', 'reviewNote', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'ownerUid', 'leaveType',
+          'startDate', 'endDate', 'displayStartDate', 'displayEndDate',
+          'totalDays', 'reason', 'status', 'reviewedBy', 'reviewNote', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
+        && isValidId(data.ownerUid)
+        && data.leaveType in ['Tahunan', 'Sakit', 'Izin']
+        && isValidDateKey(data.startDate)
+        && isValidDateKey(data.endDate)
+        && isValidDisplayDate(data.displayStartDate)
+        && isValidDisplayDate(data.displayEndDate)
+        && data.totalDays is int && data.totalDays >= 1 && data.totalDays <= 365
+        && data.reason is string && data.reason.size() >= 3 && data.reason.size() <= 500
+        && data.status in ['Menunggu', 'Disetujui', 'Ditolak']
+        && data.reviewedBy is string && data.reviewedBy.size() <= 100
+        && data.reviewNote is string && data.reviewNote.size() <= 300
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollRecord(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'positionName', 'ownerUid',
+          'periodKey', 'displayPeriod', 'daysPresent', 'dailyRate', 'totalAmount',
+          'paymentStatus', 'paidDateDisplay', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'positionName', 'ownerUid',
+          'periodKey', 'displayPeriod', 'daysPresent', 'dailyRate', 'totalAmount',
+          'paymentStatus', 'paidDateDisplay', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
+        && data.positionName is string && data.positionName.size() >= 2 && data.positionName.size() <= 80
+        && isValidId(data.ownerUid)
+        && data.periodKey is string && data.periodKey.size() == 7 && data.periodKey.matches('^\\d{4}-\\d{2}$')
+        && data.displayPeriod is string && data.displayPeriod.size() == 8 && data.displayPeriod.matches('^[A-Za-z]{3}-\\d{4}$')
+        && data.daysPresent is int && data.daysPresent >= 0 && data.daysPresent <= 31
+        && data.dailyRate is number && data.dailyRate >= 0 && data.dailyRate <= 100000000
+        && data.totalAmount is number && data.totalAmount >= 0 && data.totalAmount <= 3100000000
+        && data.paymentStatus in ['Belum Dibayar', 'Dibayar']
+        && data.paidDateDisplay is string && data.paidDateDisplay.size() <= 11
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isVerifiedUser() && (request.auth.uid == uid || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(uid) && isAdmin() && isValidAdminUser(incoming()) && incoming().uid == uid && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(uid) && isBootstrappedAdmin();
+    }
+
+    match /positions/{positionId} {
+      allow get: if isValidId(positionId) && isVerifiedUser();
+      allow list: if isVerifiedUser() && resource.data.name is string;
+      allow create: if isValidId(positionId)
+        && isAdmin()
+        && isValidPosition(incoming())
+        && incoming().id == positionId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(positionId)
+        && isAdmin()
+        && isValidPosition(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'department', 'dailyRate', 'description', 'updatedAt']);
+      allow delete: if isValidId(positionId) && isAdmin();
+    }
+
+    match /work_schedules/{scheduleId} {
+      allow get: if isValidId(scheduleId) && isVerifiedUser();
+      allow list: if isVerifiedUser() && resource.data.dayName is string;
+      allow create: if isValidId(scheduleId)
+        && isAdmin()
+        && isValidWorkSchedule(incoming())
+        && incoming().id == scheduleId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(scheduleId)
+        && isAdmin()
+        && isValidWorkSchedule(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isWorkingDay', 'checkInStart', 'checkInDeadline', 'checkOutMin', 'updatedAt']);
+      allow delete: if isValidId(scheduleId) && isAdmin();
+    }
+
+    match /employees/{employeeId} {
+      allow get: if isValidId(employeeId) && isVerifiedUser() && (isAdmin() || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isValidId(employeeId)
+        && isVerifiedUser()
+        && isValidEmployee(incoming())
+        && incoming().id == employeeId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/positions/$(incoming().positionId))
+        && (
+          isAdmin()
+          || (
+            incoming().ownerUid == request.auth.uid
+            && incoming().role == 'employee'
+            && incoming().status == 'active'
+          )
+        );
+      allow update: if isValidId(employeeId)
+        && isVerifiedUser()
+        && isValidEmployee(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'employeeCode', 'fullName', 'email', 'phone', 'positionId', 'positionName',
+            'dailyRate', 'role', 'status', 'joinDate', 'avatarUrl', 'ownerUid', 'updatedAt'
+          ]))
+          || (
+            existing().ownerUid == request.auth.uid
+            && incoming().ownerUid == existing().ownerUid
+            && incoming().role == existing().role
+            && incoming().dailyRate == existing().dailyRate
+            && incoming().positionId == existing().positionId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'avatarUrl', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(employeeId) && isAdmin();
+    }
+
+    match /attendance/{attendanceId} {
+      allow get: if isValidId(attendanceId) && isVerifiedUser() && (isAdmin() || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isValidId(attendanceId)
+        && isVerifiedUser()
+        && isValidAttendance(incoming())
+        && incoming().id == attendanceId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
+        && (isAdmin() || incoming().ownerUid == request.auth.uid);
+      allow update: if isValidId(attendanceId)
+        && isVerifiedUser()
+        && isValidAttendance(incoming())
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'checkInTime', 'checkInLat', 'checkInLng', 'checkInAccuracy', 'checkInAddress', 'checkInPhotoId',
+            'checkOutTime', 'checkOutLat', 'checkOutLng', 'checkOutAccuracy', 'checkOutAddress', 'checkOutPhotoId',
+            'status', 'dailyWageSnapshot', 'updatedAt'
+          ]))
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().checkOutTime == ''
+            && incoming().checkOutTime != ''
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'checkOutTime', 'checkOutLat', 'checkOutLng', 'checkOutAccuracy',
+              'checkOutAddress', 'checkOutPhotoId', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isValidId(attendanceId) && isAdmin();
+    }
+
+    match /attendance_photos/{photoId} {
+      allow get: if isValidId(photoId) && isVerifiedUser() && (isAdmin() || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isValidId(photoId)
+        && isVerifiedUser()
+        && isValidAttendancePhoto(incoming())
+        && incoming().id == photoId
+        && incoming().createdAt == request.time
+        && (isAdmin() || incoming().ownerUid == request.auth.uid);
+      allow update: if false;
+      allow delete: if isValidId(photoId) && isAdmin();
+    }
+
+    match /leave_requests/{leaveId} {
+      allow get: if isValidId(leaveId) && isVerifiedUser() && (isAdmin() || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isValidId(leaveId)
+        && isVerifiedUser()
+        && isValidLeaveRequest(incoming())
+        && incoming().id == leaveId
+        && incoming().status == 'Menunggu'
+        && incoming().reviewedBy == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
+        && (isAdmin() || incoming().ownerUid == request.auth.uid);
+      allow update: if isValidId(leaveId)
+        && isVerifiedUser()
+        && isValidLeaveRequest(incoming())
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewedBy', 'reviewNote', 'updatedAt'])
+          )
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().status == 'Menunggu'
+            && incoming().status == 'Menunggu'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['leaveType', 'startDate', 'endDate', 'displayStartDate', 'displayEndDate', 'totalDays', 'reason', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(leaveId) && isAdmin();
+    }
+
+    match /payroll_records/{payrollId} {
+      allow get: if isValidId(payrollId) && isVerifiedUser() && (isAdmin() || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isValidId(payrollId)
+        && isAdmin()
+        && isValidPayrollRecord(incoming())
+        && incoming().id == payrollId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+      allow update: if isValidId(payrollId)
+        && isAdmin()
+        && isValidPayrollRecord(incoming())
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'daysPresent', 'dailyRate', 'totalAmount', 'paymentStatus', 'paidDateDisplay', 'updatedAt'
+        ]);
+      allow delete: if isValidId(payrollId) && isAdmin();
+    }
+  }
+}
