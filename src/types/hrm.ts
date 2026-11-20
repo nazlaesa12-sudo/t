@@ -1,7 +1,7 @@
 export type WorkspaceMode = 'manager' | 'employee' | 'split';
 
 export type ManagerTab =
-  | 'ringkasan'
+  | 'analytics'
   | 'karyawan'
   | 'jadwal'
   | 'kehadiran'

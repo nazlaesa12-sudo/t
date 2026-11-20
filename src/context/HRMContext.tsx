@@ -148,6 +148,10 @@ interface HRMContextValue {
     decision: 'Disetujui' | 'Ditolak',
     reviewNote: string
   ) => Promise<void>;
+  bulkApproveLeaveRequests: (
+    leaveIds: string[],
+    reviewNote?: string
+  ) => Promise<void>;
   markPayrollPaid: (
     employee: Employee,
     periodKey: string,
@@ -654,11 +658,11 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const loginWithGoogle = useCallback(
     async (preferredMode?: WorkspaceMode, preferredEmployeeId?: string) => {
-      if (preferredMode) setWorkspaceMode(preferredMode);
-      if (preferredEmployeeId) setActiveEmployeeId(preferredEmployeeId);
       if (!auth.currentUser) {
         await signInWithPopup(auth, googleProvider);
       }
+      if (preferredMode) setWorkspaceMode(preferredMode);
+      if (preferredEmployeeId) setActiveEmployeeId(preferredEmployeeId);
     },
     []
   );
@@ -1063,6 +1067,38 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
     [user, notify]
   );
 
+  const bulkApproveLeaveRequests = useCallback(
+    async (leaveIds: string[], reviewNote?: string) => {
+      const uniqueIds = Array.from(new Set(leaveIds.filter(Boolean)));
+      if (uniqueIds.length === 0) return;
+
+      const reviewer = user?.displayName || 'HR Manager';
+      const note =
+        reviewNote?.trim() || 'Disetujui secara massal oleh Management.';
+
+      try {
+        const CHUNK_SIZE = 400;
+        for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+          const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+          const batch = writeBatch(db);
+          for (const leaveId of chunk) {
+            batch.update(doc(db, 'leave_requests', leaveId), {
+              status: 'Disetujui',
+              reviewedBy: reviewer,
+              reviewNote: note,
+              updatedAt: serverTimestamp(),
+            });
+          }
+          await batch.commit();
+        }
+        notify(`${uniqueIds.length} pengajuan cuti telah disetujui.`);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'leave_requests/bulk');
+      }
+    },
+    [user, notify]
+  );
+
   const markPayrollPaid = useCallback(
     async (
       employee: Employee,
@@ -1146,6 +1182,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
     fetchAttendancePhoto,
     submitLeaveRequest,
     reviewLeaveRequest,
+    bulkApproveLeaveRequests,
     markPayrollPaid,
     actionNotice,
     clearActionNotice,
