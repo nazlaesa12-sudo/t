@@ -61,6 +61,7 @@ const WorkspaceShell: React.FC = () => {
   const {
     user,
     authReady,
+    isLocalDemoMode,
     workspaceMode,
     setWorkspaceMode,
     logout,
@@ -74,7 +75,7 @@ const WorkspaceShell: React.FC = () => {
     return () => clearTimeout(timer);
   }, [actionNotice, clearActionNotice]);
 
-  if (!authReady) {
+  if (!authReady && !isLocalDemoMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-sm font-medium text-slate-500">
@@ -84,7 +85,7 @@ const WorkspaceShell: React.FC = () => {
     );
   }
 
-  if (!user) {
+  if (!user && !isLocalDemoMode) {
     return <LoginScreen />;
   }
 

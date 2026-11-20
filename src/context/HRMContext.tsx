@@ -56,11 +56,22 @@ import {
   getIndonesianDayName,
 } from '../utils/dateFormat';
 import { AVATAR_KEYS } from '../constants/avatars';
+import {
+  clearLocalDemoSession,
+  LocalDemoDataset,
+  readLocalDemoPhoto,
+  readLocalDemoSession,
+  readOrSeedLocalDemoDataset,
+  writeLocalDemoDataset,
+  writeLocalDemoPhoto,
+  writeLocalDemoSession,
+} from '../utils/localDemoStore';
 
 interface HRMContextValue {
   user: User | null;
   authReady: boolean;
   isAdminUser: boolean;
+  isLocalDemoMode: boolean;
   isDataLoading: boolean;
   workspaceMode: WorkspaceMode;
   setWorkspaceMode: (mode: WorkspaceMode) => void;
@@ -74,6 +85,7 @@ interface HRMContextValue {
   leaveRequests: LeaveRequest[];
   payrollRecords: PayrollRecord[];
   loginWithGoogle: (preferredMode?: WorkspaceMode, preferredEmployeeId?: string) => Promise<void>;
+  loginAsLocalDemo: (preferredMode?: WorkspaceMode, preferredEmployeeId?: string) => void;
   logout: () => Promise<void>;
   createPosition: (input: {
     name: string;
@@ -172,11 +184,20 @@ function makeId(prefix: string): string {
 export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  const initialDemoSession = useMemo(() => readLocalDemoSession(), []);
+
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [isLocalDemoMode, setIsLocalDemoMode] = useState<boolean>(
+    Boolean(initialDemoSession?.active)
+  );
   const [isDataLoading, setIsDataLoading] = useState(true);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('employee');
-  const [activeEmployeeId, setActiveEmployeeId] = useState<string>('emp_siti_ops');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
+    initialDemoSession?.workspaceMode ?? 'employee'
+  );
+  const [activeEmployeeId, setActiveEmployeeId] = useState<string>(
+    initialDemoSession?.activeEmployeeId ?? 'emp_siti_ops'
+  );
 
   const [positions, setPositions] = useState<Position[]>([]);
   const [workSchedules, setWorkSchedules] = useState<WorkSchedule[]>([]);
@@ -191,15 +212,19 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
   const selfRegisteredRef = useRef(false);
 
   const isAdminUser = useMemo(() => {
+    if (isLocalDemoMode) return true;
     if (!user?.email) return false;
     return user.email.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase();
-  }, [user]);
+  }, [user, isLocalDemoMode]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setAuthReady(true);
-      if (!firebaseUser) {
+      if (firebaseUser) {
+        clearLocalDemoSession();
+        setIsLocalDemoMode(false);
+      } else if (!readLocalDemoSession()?.active) {
         setPositions([]);
         setWorkSchedules([]);
         setEmployees([]);
@@ -213,6 +238,27 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!isLocalDemoMode || user) return;
+    const dataset = readOrSeedLocalDemoDataset();
+    setPositions(dataset.positions);
+    setWorkSchedules(dataset.workSchedules);
+    setEmployees(dataset.employees);
+    setAttendance(dataset.attendance);
+    setLeaveRequests(dataset.leaveRequests);
+    setPayrollRecords(dataset.payrollRecords);
+    setIsDataLoading(false);
+  }, [isLocalDemoMode, user]);
+
+  useEffect(() => {
+    if (!isLocalDemoMode) return;
+    writeLocalDemoSession({
+      active: true,
+      workspaceMode,
+      activeEmployeeId,
+    });
+  }, [isLocalDemoMode, workspaceMode, activeEmployeeId]);
 
   const seedInitialData = useCallback(async (adminUser: User) => {
     if (seededRef.current) return;
@@ -656,19 +702,123 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const clearActionNotice = useCallback(() => setActionNotice(null), []);
 
+  const persistLocalDataset = useCallback(
+    (patch: Partial<LocalDemoDataset>) => {
+      const next: LocalDemoDataset = {
+        positions: patch.positions ?? positions,
+        workSchedules: patch.workSchedules ?? workSchedules,
+        employees: patch.employees ?? employees,
+        attendance: patch.attendance ?? attendance,
+        leaveRequests: patch.leaveRequests ?? leaveRequests,
+        payrollRecords: patch.payrollRecords ?? payrollRecords,
+      };
+      if (patch.positions) setPositions(patch.positions);
+      if (patch.workSchedules) setWorkSchedules(patch.workSchedules);
+      if (patch.employees) setEmployees(patch.employees);
+      if (patch.attendance) setAttendance(patch.attendance);
+      if (patch.leaveRequests) setLeaveRequests(patch.leaveRequests);
+      if (patch.payrollRecords) setPayrollRecords(patch.payrollRecords);
+      writeLocalDemoDataset(next);
+    },
+    [
+      positions,
+      workSchedules,
+      employees,
+      attendance,
+      leaveRequests,
+      payrollRecords,
+    ]
+  );
+
+  const activateLocalDemo = useCallback(
+    (
+      preferredMode?: WorkspaceMode,
+      preferredEmployeeId?: string,
+      noticeText?: string
+    ) => {
+      const nextMode = preferredMode ?? workspaceMode;
+      const nextEmpId = preferredEmployeeId ?? activeEmployeeId;
+      writeLocalDemoSession({
+        active: true,
+        workspaceMode: nextMode,
+        activeEmployeeId: nextEmpId,
+      });
+      setWorkspaceMode(nextMode);
+      setActiveEmployeeId(nextEmpId);
+      const dataset = readOrSeedLocalDemoDataset();
+      setPositions(dataset.positions);
+      setWorkSchedules(dataset.workSchedules);
+      setEmployees(dataset.employees);
+      setAttendance(dataset.attendance);
+      setLeaveRequests(dataset.leaveRequests);
+      setPayrollRecords(dataset.payrollRecords);
+      setIsDataLoading(false);
+      setIsLocalDemoMode(true);
+      notify(
+        noticeText ??
+          'Mode Demo Lokal aktif. Data tersimpan otomatis di perangkat ini.'
+      );
+    },
+    [workspaceMode, activeEmployeeId, notify]
+  );
+
+  const loginAsLocalDemo = useCallback(
+    (preferredMode?: WorkspaceMode, preferredEmployeeId?: string) => {
+      activateLocalDemo(preferredMode, preferredEmployeeId);
+    },
+    [activateLocalDemo]
+  );
+
   const loginWithGoogle = useCallback(
     async (preferredMode?: WorkspaceMode, preferredEmployeeId?: string) => {
       if (!auth.currentUser) {
-        await signInWithPopup(auth, googleProvider);
+        try {
+          await signInWithPopup(auth, googleProvider);
+        } catch (err) {
+          const code =
+            typeof err === 'object' &&
+            err !== null &&
+            'code' in err &&
+            typeof (err as { code?: unknown }).code === 'string'
+              ? (err as { code: string }).code
+              : '';
+          const msg = err instanceof Error ? err.message : String(err ?? '');
+          if (
+            code === 'auth/unauthorized-domain' ||
+            code === 'auth/operation-not-allowed' ||
+            msg.includes('auth/unauthorized-domain') ||
+            msg.includes('auth/operation-not-allowed')
+          ) {
+            activateLocalDemo(
+              preferredMode,
+              preferredEmployeeId,
+              'Domain belum diizinkan Firebase Auth — Mode Demo Lokal diaktifkan otomatis.'
+            );
+            return;
+          }
+          throw err;
+        }
       }
       if (preferredMode) setWorkspaceMode(preferredMode);
       if (preferredEmployeeId) setActiveEmployeeId(preferredEmployeeId);
     },
-    []
+    [activateLocalDemo]
   );
 
   const logout = useCallback(async () => {
-    await signOut(auth);
+    clearLocalDemoSession();
+    setIsLocalDemoMode(false);
+    if (auth.currentUser) {
+      await signOut(auth);
+    } else {
+      setPositions([]);
+      setWorkSchedules([]);
+      setEmployees([]);
+      setAttendance([]);
+      setLeaveRequests([]);
+      setPayrollRecords([]);
+      setIsDataLoading(false);
+    }
   }, []);
 
   const createPosition = useCallback(
@@ -679,13 +829,24 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       description: string;
     }) => {
       const id = makeId('pos');
+      const newPos: Position = {
+        id,
+        name: input.name.trim(),
+        department: input.department.trim(),
+        dailyRate: Number(input.dailyRate),
+        description: input.description.trim(),
+      };
+      if (isLocalDemoMode) {
+        const nextPositions = [...positions, newPos].sort(
+          (a, b) => a.dailyRate - b.dailyRate
+        );
+        persistLocalDataset({ positions: nextPositions });
+        notify(`Jabatan "${input.name}" berhasil ditambahkan.`);
+        return;
+      }
       try {
         await setDoc(doc(db, 'positions', id), {
-          id,
-          name: input.name.trim(),
-          department: input.department.trim(),
-          dailyRate: Number(input.dailyRate),
-          description: input.description.trim(),
+          ...newPos,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -694,7 +855,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.CREATE, `positions/${id}`);
       }
     },
-    [notify]
+    [isLocalDemoMode, positions, persistLocalDataset, notify]
   );
 
   const updatePosition = useCallback(
@@ -707,6 +868,36 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         description: string;
       }
     ) => {
+      if (isLocalDemoMode) {
+        const nextPositions = positions
+          .map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  name: input.name.trim(),
+                  department: input.department.trim(),
+                  dailyRate: Number(input.dailyRate),
+                  description: input.description.trim(),
+                }
+              : p
+          )
+          .sort((a, b) => a.dailyRate - b.dailyRate);
+        const nextEmployees = employees.map((e) =>
+          e.positionId === id
+            ? {
+                ...e,
+                positionName: input.name.trim(),
+                dailyRate: Number(input.dailyRate),
+              }
+            : e
+        );
+        persistLocalDataset({
+          positions: nextPositions,
+          employees: nextEmployees,
+        });
+        notify(`Tarif dan data jabatan "${input.name}" diperbarui.`);
+        return;
+      }
       try {
         await updateDoc(doc(db, 'positions', id), {
           name: input.name.trim(),
@@ -720,11 +911,18 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.UPDATE, `positions/${id}`);
       }
     },
-    [notify]
+    [isLocalDemoMode, positions, employees, persistLocalDataset, notify]
   );
 
   const deletePosition = useCallback(
     async (id: string) => {
+      if (isLocalDemoMode) {
+        persistLocalDataset({
+          positions: positions.filter((p) => p.id !== id),
+        });
+        notify('Jabatan dihapus.');
+        return;
+      }
       try {
         await deleteDoc(doc(db, 'positions', id));
         notify('Jabatan dihapus.');
@@ -732,7 +930,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.DELETE, `positions/${id}`);
       }
     },
-    [notify]
+    [isLocalDemoMode, positions, persistLocalDataset, notify]
   );
 
   const updateWorkSchedule = useCallback(
@@ -745,6 +943,22 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         checkOutMin: string;
       }
     ) => {
+      if (isLocalDemoMode) {
+        const nextSchedules = workSchedules.map((ws) =>
+          ws.id === id
+            ? {
+                ...ws,
+                isWorkingDay: input.isWorkingDay,
+                checkInStart: input.checkInStart,
+                checkInDeadline: input.checkInDeadline,
+                checkOutMin: input.checkOutMin,
+              }
+            : ws
+        );
+        persistLocalDataset({ workSchedules: nextSchedules });
+        notify('Jadwal hari dan jam kerja diperbarui.');
+        return;
+      }
       try {
         await updateDoc(doc(db, 'work_schedules', id), {
           isWorkingDay: input.isWorkingDay,
@@ -758,7 +972,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.UPDATE, `work_schedules/${id}`);
       }
     },
-    [notify]
+    [isLocalDemoMode, workSchedules, persistLocalDataset, notify]
   );
 
   const createEmployee = useCallback(
@@ -771,28 +985,40 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       role: 'manager' | 'employee';
       joinDate: string;
     }) => {
-      if (!user) return;
+      if (!user && !isLocalDemoMode) return;
       const pos = positions.find((p) => p.id === input.positionId);
       if (!pos) return;
       const id = makeId('emp');
+      const ownerUid = isLocalDemoMode ? 'local_demo_owner' : user!.uid;
+      const newEmp: Employee = {
+        id,
+        employeeCode: input.employeeCode.trim(),
+        fullName: input.fullName.trim(),
+        email: input.email.trim(),
+        phone: input.phone.trim(),
+        positionId: pos.id,
+        positionName: pos.name,
+        dailyRate: pos.dailyRate,
+        role: input.role,
+        status: 'active',
+        joinDate: formatDateDDMMMYYYY(input.joinDate),
+        avatarUrl:
+          input.role === 'manager'
+            ? AVATAR_KEYS.MANAGER_ARIF
+            : AVATAR_KEYS.EMPLOYEE_SITI,
+        ownerUid,
+      };
+      if (isLocalDemoMode) {
+        const nextEmployees = [...employees, newEmp].sort((a, b) =>
+          a.employeeCode.localeCompare(b.employeeCode)
+        );
+        persistLocalDataset({ employees: nextEmployees });
+        notify(`Karyawan ${input.fullName} berhasil ditambahkan.`);
+        return;
+      }
       try {
         await setDoc(doc(db, 'employees', id), {
-          id,
-          employeeCode: input.employeeCode.trim(),
-          fullName: input.fullName.trim(),
-          email: input.email.trim(),
-          phone: input.phone.trim(),
-          positionId: pos.id,
-          positionName: pos.name,
-          dailyRate: pos.dailyRate,
-          role: input.role,
-          status: 'active',
-          joinDate: formatDateDDMMMYYYY(input.joinDate),
-          avatarUrl:
-            input.role === 'manager'
-              ? AVATAR_KEYS.MANAGER_ARIF
-              : AVATAR_KEYS.EMPLOYEE_SITI,
-          ownerUid: user.uid,
+          ...newEmp,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -801,7 +1027,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.CREATE, `employees/${id}`);
       }
     },
-    [positions, user, notify]
+    [positions, employees, user, isLocalDemoMode, persistLocalDataset, notify]
   );
 
   const updateEmployee = useCallback(
@@ -820,6 +1046,28 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
     ) => {
       const pos = positions.find((p) => p.id === input.positionId);
       if (!pos) return;
+      if (isLocalDemoMode) {
+        const nextEmployees = employees.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                employeeCode: input.employeeCode.trim(),
+                fullName: input.fullName.trim(),
+                email: input.email.trim(),
+                phone: input.phone.trim(),
+                positionId: pos.id,
+                positionName: pos.name,
+                dailyRate: pos.dailyRate,
+                role: input.role,
+                status: input.status,
+                joinDate: formatDateDDMMMYYYY(input.joinDate),
+              }
+            : e
+        );
+        persistLocalDataset({ employees: nextEmployees });
+        notify(`Data karyawan ${input.fullName} diperbarui.`);
+        return;
+      }
       try {
         await updateDoc(doc(db, 'employees', id), {
           employeeCode: input.employeeCode.trim(),
@@ -839,11 +1087,18 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.UPDATE, `employees/${id}`);
       }
     },
-    [positions, notify]
+    [positions, employees, isLocalDemoMode, persistLocalDataset, notify]
   );
 
   const deleteEmployee = useCallback(
     async (id: string) => {
+      if (isLocalDemoMode) {
+        persistLocalDataset({
+          employees: employees.filter((e) => e.id !== id),
+        });
+        notify('Data karyawan dihapus.');
+        return;
+      }
       try {
         await deleteDoc(doc(db, 'employees', id));
         notify('Data karyawan dihapus.');
@@ -851,7 +1106,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.DELETE, `employees/${id}`);
       }
     },
-    [notify]
+    [isLocalDemoMode, employees, persistLocalDataset, notify]
   );
 
   const submitCheckIn = useCallback(
@@ -878,6 +1133,42 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       const attendanceId = `${employee.id}_${dateKey}`;
       const photoId = `photo_in_${attendanceId}`;
 
+      const newAttendance: Attendance = {
+        id: attendanceId,
+        employeeId: employee.id,
+        employeeName: employee.fullName,
+        positionName: employee.positionName,
+        ownerUid: employee.ownerUid,
+        dateKey,
+        displayDate,
+        checkInTime: timeStr,
+        checkInLat: Number(coords.lat.toFixed(6)),
+        checkInLng: Number(coords.lng.toFixed(6)),
+        checkInAccuracy: Math.round(coords.accuracy),
+        checkInAddress: coords.address.slice(0, 235),
+        checkInPhotoId: photoId,
+        checkOutTime: '',
+        checkOutLat: 0,
+        checkOutLng: 0,
+        checkOutAccuracy: 0,
+        checkOutAddress: '',
+        checkOutPhotoId: '',
+        status,
+        dailyWageSnapshot: dailyRate,
+      };
+
+      if (isLocalDemoMode) {
+        photoCacheRef.current.set(photoId, photoDataUrl);
+        writeLocalDemoPhoto(photoId, photoDataUrl);
+        const nextAttendance = [
+          newAttendance,
+          ...attendance.filter((a) => a.id !== attendanceId),
+        ];
+        persistLocalDataset({ attendance: nextAttendance });
+        notify(`Check-in ${employee.fullName} tercatat pukul ${timeStr}.`);
+        return;
+      }
+
       try {
         const batch = writeBatch(db);
         const photoDoc: AttendancePhoto = {
@@ -892,27 +1183,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         batch.set(doc(db, 'attendance_photos', photoId), photoDoc);
 
         batch.set(doc(db, 'attendance', attendanceId), {
-          id: attendanceId,
-          employeeId: employee.id,
-          employeeName: employee.fullName,
-          positionName: employee.positionName,
-          ownerUid: employee.ownerUid,
-          dateKey,
-          displayDate,
-          checkInTime: timeStr,
-          checkInLat: Number(coords.lat.toFixed(6)),
-          checkInLng: Number(coords.lng.toFixed(6)),
-          checkInAccuracy: Math.round(coords.accuracy),
-          checkInAddress: coords.address.slice(0, 235),
-          checkInPhotoId: photoId,
-          checkOutTime: '',
-          checkOutLat: 0,
-          checkOutLng: 0,
-          checkOutAccuracy: 0,
-          checkOutAddress: '',
-          checkOutPhotoId: '',
-          status,
-          dailyWageSnapshot: dailyRate,
+          ...newAttendance,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -928,7 +1199,14 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
     },
-    [positions, workSchedules, notify]
+    [
+      positions,
+      workSchedules,
+      attendance,
+      isLocalDemoMode,
+      persistLocalDataset,
+      notify,
+    ]
   );
 
   const submitCheckOut = useCallback(
@@ -940,6 +1218,29 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       const now = new Date();
       const timeStr = getCurrentTimeHHMMSS(now);
       const photoId = `photo_out_${attendanceDoc.id}`;
+
+      if (isLocalDemoMode) {
+        photoCacheRef.current.set(photoId, photoDataUrl);
+        writeLocalDemoPhoto(photoId, photoDataUrl);
+        const nextAttendance = attendance.map((a) =>
+          a.id === attendanceDoc.id
+            ? {
+                ...a,
+                checkOutTime: timeStr,
+                checkOutLat: Number(coords.lat.toFixed(6)),
+                checkOutLng: Number(coords.lng.toFixed(6)),
+                checkOutAccuracy: Math.round(coords.accuracy),
+                checkOutAddress: coords.address.slice(0, 235),
+                checkOutPhotoId: photoId,
+              }
+            : a
+        );
+        persistLocalDataset({ attendance: nextAttendance });
+        notify(
+          `Check-out ${attendanceDoc.employeeName} tercatat pukul ${timeStr}.`
+        );
+        return;
+      }
 
       try {
         const batch = writeBatch(db);
@@ -976,7 +1277,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
     },
-    [notify]
+    [isLocalDemoMode, attendance, persistLocalDataset, notify]
   );
 
   const fetchAttendancePhoto = useCallback(
@@ -984,6 +1285,13 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!photoId) return null;
       const cached = photoCacheRef.current.get(photoId);
       if (cached) return cached;
+      if (isLocalDemoMode) {
+        const localPhoto = readLocalDemoPhoto(photoId);
+        if (localPhoto) {
+          photoCacheRef.current.set(photoId, localPhoto);
+        }
+        return localPhoto;
+      }
       try {
         const snap = await getDoc(doc(db, 'attendance_photos', photoId));
         if (snap.exists()) {
@@ -1000,7 +1308,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
     },
-    []
+    [isLocalDemoMode]
   );
 
   const submitLeaveRequest = useCallback(
@@ -1015,22 +1323,34 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
     ) => {
       const id = makeId('leave');
       const totalDays = calculateDaysBetween(input.startDate, input.endDate);
+      const newLeave: LeaveRequest = {
+        id,
+        employeeId: employee.id,
+        employeeName: employee.fullName,
+        ownerUid: employee.ownerUid,
+        leaveType: input.leaveType,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        displayStartDate: formatDateDDMMMYYYY(input.startDate),
+        displayEndDate: formatDateDDMMMYYYY(input.endDate),
+        totalDays,
+        reason: input.reason.trim(),
+        status: 'Menunggu',
+        reviewedBy: '',
+        reviewNote: '',
+      };
+
+      if (isLocalDemoMode) {
+        persistLocalDataset({
+          leaveRequests: [newLeave, ...leaveRequests],
+        });
+        notify(`Pengajuan cuti ${employee.fullName} terkirim.`);
+        return;
+      }
+
       try {
         await setDoc(doc(db, 'leave_requests', id), {
-          id,
-          employeeId: employee.id,
-          employeeName: employee.fullName,
-          ownerUid: employee.ownerUid,
-          leaveType: input.leaveType,
-          startDate: input.startDate,
-          endDate: input.endDate,
-          displayStartDate: formatDateDDMMMYYYY(input.startDate),
-          displayEndDate: formatDateDDMMMYYYY(input.endDate),
-          totalDays,
-          reason: input.reason.trim(),
-          status: 'Menunggu',
-          reviewedBy: '',
-          reviewNote: '',
+          ...newLeave,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -1039,7 +1359,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.CREATE, `leave_requests/${id}`);
       }
     },
-    [notify]
+    [isLocalDemoMode, leaveRequests, persistLocalDataset, notify]
   );
 
   const reviewLeaveRequest = useCallback(
@@ -1048,11 +1368,31 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       decision: 'Disetujui' | 'Ditolak',
       reviewNote: string
     ) => {
+      const reviewer = user?.displayName || 'HR Manager';
+      const note =
+        reviewNote.trim() || `Cuti ${decision.toLowerCase()} oleh Manager.`;
+
+      if (isLocalDemoMode) {
+        const nextLeaves = leaveRequests.map((lv) =>
+          lv.id === leaveId
+            ? {
+                ...lv,
+                status: decision,
+                reviewedBy: reviewer,
+                reviewNote: note,
+              }
+            : lv
+        );
+        persistLocalDataset({ leaveRequests: nextLeaves });
+        notify(`Pengajuan cuti telah ${decision.toLowerCase()}.`);
+        return;
+      }
+
       try {
         await updateDoc(doc(db, 'leave_requests', leaveId), {
           status: decision,
-          reviewedBy: user?.displayName || 'HR Manager',
-          reviewNote: reviewNote.trim() || `Cuti ${decision.toLowerCase()} oleh Manager.`,
+          reviewedBy: reviewer,
+          reviewNote: note,
           updatedAt: serverTimestamp(),
         });
         notify(`Pengajuan cuti telah ${decision.toLowerCase()}.`);
@@ -1064,7 +1404,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
     },
-    [user, notify]
+    [user, isLocalDemoMode, leaveRequests, persistLocalDataset, notify]
   );
 
   const bulkApproveLeaveRequests = useCallback(
@@ -1075,6 +1415,23 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       const reviewer = user?.displayName || 'HR Manager';
       const note =
         reviewNote?.trim() || 'Disetujui secara massal oleh Management.';
+
+      if (isLocalDemoMode) {
+        const idSet = new Set(uniqueIds);
+        const nextLeaves = leaveRequests.map((lv) =>
+          idSet.has(lv.id)
+            ? {
+                ...lv,
+                status: 'Disetujui' as const,
+                reviewedBy: reviewer,
+                reviewNote: note,
+              }
+            : lv
+        );
+        persistLocalDataset({ leaveRequests: nextLeaves });
+        notify(`${uniqueIds.length} pengajuan cuti telah disetujui.`);
+        return;
+      }
 
       try {
         const CHUNK_SIZE = 400;
@@ -1096,7 +1453,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.WRITE, 'leave_requests/bulk');
       }
     },
-    [user, notify]
+    [user, isLocalDemoMode, leaveRequests, persistLocalDataset, notify]
   );
 
   const markPayrollPaid = useCallback(
@@ -1111,6 +1468,31 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
       const pos = positions.find((p) => p.id === employee.positionId);
       const dailyRate = pos?.dailyRate ?? employee.dailyRate ?? 100000;
       const paidDateDisplay = formatDateDDMMMYYYY(new Date());
+
+      if (isLocalDemoMode) {
+        const record: PayrollRecord = {
+          id: payrollId,
+          employeeId: employee.id,
+          employeeName: employee.fullName,
+          positionName: employee.positionName,
+          ownerUid: employee.ownerUid,
+          periodKey,
+          displayPeriod: formatPeriodMMMYYYY(periodKey),
+          daysPresent,
+          dailyRate,
+          totalAmount,
+          paymentStatus: 'Dibayar',
+          paidDateDisplay,
+        };
+        const nextPayrolls = existing
+          ? payrollRecords.map((p) => (p.id === payrollId ? record : p))
+          : [...payrollRecords, record];
+        persistLocalDataset({ payrollRecords: nextPayrolls });
+        notify(
+          `Payroll ${employee.fullName} periode ${formatPeriodMMMYYYY(periodKey)} ditandai Dibayar.`
+        );
+        return;
+      }
 
       try {
         if (existing) {
@@ -1149,13 +1531,20 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
     },
-    [payrollRecords, positions, notify]
+    [
+      payrollRecords,
+      positions,
+      isLocalDemoMode,
+      persistLocalDataset,
+      notify,
+    ]
   );
 
   const value: HRMContextValue = {
     user,
     authReady,
     isAdminUser,
+    isLocalDemoMode,
     isDataLoading,
     workspaceMode,
     setWorkspaceMode,
@@ -1169,6 +1558,7 @@ export const HRMProvider: React.FC<{ children: React.ReactNode }> = ({
     leaveRequests,
     payrollRecords,
     loginWithGoogle,
+    loginAsLocalDemo,
     logout,
     createPosition,
     updatePosition,
